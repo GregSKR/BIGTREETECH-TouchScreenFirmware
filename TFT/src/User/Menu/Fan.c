@@ -1,153 +1,123 @@
 #include "Fan.h"
 #include "includes.h"
 
-
-//1 title, ITEM_PER_PAGE items(icon+label)
-const MENUITEMS fanItems = {
-//   title
-LABEL_FAN,
-// icon                       label
- {{ICON_DEC,                  LABEL_DEC},
-  {ICON_BACKGROUND,           LABEL_BACKGROUND},
-  {ICON_BACKGROUND,           LABEL_BACKGROUND},
-  {ICON_INC,                  LABEL_INC},
-  {ICON_FAN ,                 LABEL_FAN},
-  {ICON_FAN_FULL_SPEED,       LABEL_FAN_FULL_SPEED},
-  {ICON_STOP,                 LABEL_STOP},
-  {ICON_BACK,                 LABEL_BACK},}
+const ITEM itemFan[2] = {
+  // icon                        label
+  {ICON_FAN,                     LABEL_FAN},
+  {ICON_FAN_HALF_SPEED,          LABEL_HALF},
 };
 
-const char* fanID[] = FAN_ID;
-const char* fanCmd[] = FAN_CMD;
-
-static u8   fanSpeed[MAX_FAN_COUNT] = {0};
-static u8   curIndex = 0;
-static bool send_waiting[MAX_FAN_COUNT] = {false};
-
-void fanSetSpeed(u8 i, u8 speed)
-{
-  fanSpeed[i] = speed;
-}
-
-u8 fanGetSpeed(u8 i)
-{
-  return fanSpeed[i];
-}
-
-void fanSetCurIndex(u8 i)
-{
-  if(i >= infoSettings.fan_count) return;
-  curIndex = i;
-}
-
-u8 fanGetCurIndex(u8 i)
-{
-  return curIndex;
-}
-
-void fanSetSendWaiting(u8 i, bool isWaiting)
-{
-  send_waiting[i] = isWaiting;
-}
-
-void showFanSpeed(void)
-{
-  const GUI_RECT rect = {exhibitRect.x0, CENTER_Y-BYTE_HEIGHT, exhibitRect.x1, CENTER_Y};
-  u8 fs;
-  if(infoSettings.fan_percentage == 1)
-    fs = (fanSpeed[curIndex]*100)/255;
-  else
-    fs = fanSpeed[curIndex];
-
-  GUI_ClearRect(rect.x0, rect.y0, rect.x1, rect.y1);
-  GUI_DispStringInPrect(&rect, (u8*)fanID[curIndex]);
-  if(infoSettings.fan_percentage == 1)
-    {
-      char fan_s[5];
-      sprintf(fan_s, "%3u%%", fs);
-      GUI_DispString(CENTER_X-BYTE_WIDTH, CENTER_Y, (u8 *)fan_s);
-    }
-  else
-    {GUI_DispDec(CENTER_X-BYTE_WIDTH, CENTER_Y, fs, 3, LEFT);
-    }
-}
-
-void fanSpeedReDraw(void)
-{
- if(infoSettings.fan_percentage == 1)
-    {
-      char fan_s[5] = "";
-      sprintf(fan_s, "%3u%%", (fanSpeed[curIndex]*100)/255);
-      GUI_DispString(CENTER_X-BYTE_WIDTH, CENTER_Y, (u8 *)fan_s);
-    }
-  else
-    GUI_DispDec(CENTER_X-BYTE_WIDTH, CENTER_Y, fanSpeed[curIndex], 3, LEFT);
-}
+static uint8_t fan_index = 0;
 
 void menuFan(void)
 {
-  u8 nowIndex = curIndex;
-  u8 nowFanSpeed[infoSettings.fan_count];
-  memcpy(nowFanSpeed, fanSpeed, sizeof(fanSpeed));
+  // 1 title, ITEM_PER_PAGE items (icon + label)
+  MENUITEMS fanItems = {
+    // title
+    LABEL_FAN,
+    // icon                          label
+    {
+      {ICON_DEC,                     LABEL_DEC},
+      {ICON_BACKGROUND,              LABEL_BACKGROUND},
+      {ICON_BACKGROUND,              LABEL_BACKGROUND},
+      {ICON_INC,                     LABEL_INC},
+      {ICON_FAN ,                    LABEL_FAN},
+      {ICON_FAN_FULL_SPEED,          LABEL_FULL},
+      {ICON_STOP,                    LABEL_STOP},
+      {ICON_BACK,                    LABEL_BACK},
+    }
+  };
+
   KEY_VALUES key_num = KEY_IDLE;
+  LASTFAN lastFan;
+
+  fanSetSpeed(fan_index, fanGetCurSpeed(fan_index));
+  lastFan = (LASTFAN) {fanGetCurSpeed(fan_index), fanGetSetSpeed(fan_index)};
+
+  if ((infoSettings.fan_count + infoSettings.ctrl_fan_en) > 1)
+    fanItems.items[KEY_ICON_4] = itemFan[0];
+  else
+    fanItems.items[KEY_ICON_4] = itemFan[1];
 
   menuDrawPage(&fanItems);
-  showFanSpeed();
+  fanReDraw(fan_index, false);
 
   #if LCD_ENCODER_SUPPORT
     encoderPosition = 0;
   #endif
 
-  while(infoMenu.menu[infoMenu.cur] == menuFan)
+  while (infoMenu.menu[infoMenu.cur] == menuFan)
   {
     key_num = menuKeyGetValue();
-    switch(key_num)
+    switch (key_num)
     {
       case KEY_ICON_0:
-        if (fanSpeed[curIndex] > 0)
+        if (fanGetSetSpeed(fan_index) > 0)
         {
-          if (infoSettings.fan_percentage ==  1)
-          {
-            if ((fanSpeed[curIndex] - 2) > 0)
-              fanSpeed[curIndex] -= 2; //2.55 is 1 percent, rounding down
-            else
-              fanSpeed[curIndex] = 0;
-          }
+          if (infoSettings.fan_percentage == 1)
+            fanSetPercent(fan_index, fanGetSetPercent(fan_index) - 1);
           else
-          {
-            fanSpeed[curIndex]--;
-          }
+            fanSetSpeed(fan_index, fanGetSetSpeed(fan_index) - 1);
         }
         break;
 
-      case KEY_ICON_3:
-        if (fanSpeed[curIndex] < infoSettings.fan_max[curIndex])
+      case KEY_INFOBOX:
+      {
+        int16_t val;
+
+        if (infoSettings.fan_percentage == 1)
         {
-          if (infoSettings.fan_percentage ==  1)
-          {
-            if (fanSpeed[curIndex] + 2 <= infoSettings.fan_max[curIndex])
-              fanSpeed[curIndex] += 2; //2.55 is 1 percent, rounding down
-            else
-              fanSpeed[curIndex] = infoSettings.fan_max[curIndex];
-          }
+          val = editIntValue(0, 100, 0, fanGetSetPercent(fan_index));
+
+          if (val != fanGetSetPercent(fan_index))
+            fanSetPercent(fan_index, val);
+        }
+        else
+        {
+          val = editIntValue(0, infoSettings.fan_max[fan_index], 0, fanGetCurSpeed(fan_index));
+
+          if (val != fanGetCurSpeed(fan_index))
+            fanSetSpeed(fan_index, val);
+        }
+
+        menuDrawPage(&fanItems);
+        fanReDraw(fan_index, false);
+        break;
+      }
+
+      case KEY_ICON_3:
+        if (fanGetSetSpeed(fan_index) < infoSettings.fan_max[fan_index])
+        {
+          if (infoSettings.fan_percentage == 1)
+            fanSetPercent(fan_index, fanGetSetPercent(fan_index) + 1);
           else
-          {
-            fanSpeed[curIndex]++;
-          }
+            fanSetSpeed(fan_index, fanGetSetSpeed(fan_index) + 1);
         }
         break;
 
       case KEY_ICON_4:
-        curIndex = (curIndex + 1) % infoSettings.fan_count;
-        showFanSpeed();
+        if ((infoSettings.fan_count + infoSettings.ctrl_fan_en) > 1)
+        {
+          do
+          {
+            fan_index = (fan_index + 1) % MAX_FAN_COUNT;
+          } while (!fanIsValid(fan_index));
+
+          fanReDraw(fan_index, false);
+        }
+        else
+        {
+          fanSetSpeed(fan_index, infoSettings.fan_max[fan_index] / 2);  // 50%
+          fanReDraw(fan_index, true);
+        }
         break;
 
       case KEY_ICON_5:
-        fanSpeed[curIndex] = infoSettings.fan_max[curIndex];
+        fanSetSpeed(fan_index, infoSettings.fan_max[fan_index]);
         break;
 
       case KEY_ICON_6:
-        fanSpeed[curIndex] = 0;
+        fanSetSpeed(fan_index, 0);
         break;
 
       case KEY_ICON_7:
@@ -156,58 +126,36 @@ void menuFan(void)
 
       default:
         #if LCD_ENCODER_SUPPORT
-          if(encoderPosition)
+          if (encoderPosition)
           {
-            if (fanSpeed[curIndex] < infoSettings.fan_max[curIndex] && encoderPosition > 0)
+            if (fanGetSetSpeed(fan_index) < infoSettings.fan_max[fan_index] && encoderPosition > 0)
             {
-              if (infoSettings.fan_percentage ==  1)
-              {
-                if (fanSpeed[curIndex] + 2 <= infoSettings.fan_max[curIndex])
-                  fanSpeed[curIndex] += 2; //2.55 is 1 percent, rounding down
-                else
-                  fanSpeed[curIndex] = infoSettings.fan_max[curIndex];
-              }
+              if (infoSettings.fan_percentage == 1)
+                fanSetPercent(fan_index, fanGetSetPercent(fan_index) + 1);
               else
-              {
-                fanSpeed[curIndex]++;
-              }
+                fanSetSpeed(fan_index, fanGetSetSpeed(fan_index) + 1);
             }
 
-            if (fanSpeed[curIndex] > 0 && encoderPosition < 0) {
-              if (infoSettings.fan_percentage ==  1)
-              {
-                if ((fanSpeed[curIndex] - 2) > 0)
-                  fanSpeed[curIndex] -= 2; //2.55 is 1 percent, rounding down
-                else
-                  fanSpeed[curIndex] = 0;
-              }
+            if (fanGetSetSpeed(fan_index) > 0 && encoderPosition < 0)
+            {
+              if (infoSettings.fan_percentage == 1)
+                fanSetPercent(fan_index, fanGetSetPercent(fan_index) - 1);
               else
-              {
-                fanSpeed[curIndex]--;
-              }
+                fanSetSpeed(fan_index, fanGetSetSpeed(fan_index) - 1);
             }
-
             encoderPosition = 0;
           }
         #endif
         break;
     }
 
-    if(nowIndex != curIndex)
+    if ((lastFan.cur != fanGetCurSpeed(fan_index)) || (lastFan.set != fanGetSetSpeed(fan_index)))
     {
-      nowIndex = curIndex;
-      showFanSpeed();
+      lastFan = (LASTFAN) {fanGetCurSpeed(fan_index), fanGetSetSpeed(fan_index)};
+
+      fanReDraw(fan_index, true);
     }
-    if(nowFanSpeed[curIndex] != fanSpeed[curIndex])
-    {
-      nowFanSpeed[curIndex] = fanSpeed[curIndex];
-      fanSpeedReDraw();
-      if(send_waiting[curIndex] != true)
-      {
-        send_waiting[curIndex] = true;
-        storeCmd("%s ", fanCmd[curIndex]);
-      }
-    }
+
     loopProcess();
   }
 }
