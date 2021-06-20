@@ -90,7 +90,10 @@ bool scanPrintFilesFatFs(void)
     {
       if (infoFile.folderCount >= FOLDER_NUM)
         continue;
-
+      
+      if (strstr(finfo.fname, ".CUR") != NULL) // ignore 'TFTxx.CUR' folder
+        continue;
+      
       infoFile.folder[infoFile.folderCount] = malloc(len);
       if (infoFile.folder[infoFile.folderCount] == NULL)
         break;
